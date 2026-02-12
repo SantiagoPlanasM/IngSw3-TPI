@@ -40,9 +40,10 @@ func main() {
 	// Setup Gin router
 	router := gin.Default()
 
-	// CORS configuration
+	// CONFIGURACIÓN DE CORS CORREGIDA
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost", "http://localhost:80", "http://localhost:5173", "http://localhost:3000", "http://frontend:80"},
+		// Usar AllowAllOrigins: true es lo más fácil para que no falle en Render
+		AllowAllOrigins:  true,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
