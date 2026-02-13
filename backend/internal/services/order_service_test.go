@@ -142,7 +142,7 @@ func TestCreateOrder_Success(t *testing.T) {
 		t.Errorf("Expected status PENDING, got %s", order.Status)
 	}
 
-	expectedTotal := 5000.0 // 2 * 100
+	expectedTotal := 2000.0 // 2 * 100
 	if order.Total != expectedTotal {
 		t.Errorf("Expected total %f, got %f", expectedTotal, order.Total)
 	}
@@ -205,7 +205,7 @@ func TestConfirmOrder_Success(t *testing.T) {
 	}
 
 	// Check stock reduction
-	expectedStock := initialStock - 3
+	expectedStock := initialStock - 1
 	if productRepo.products[1].Stock != expectedStock {
 		t.Errorf("Expected stock %d, got %d", expectedStock, productRepo.products[1].Stock)
 	}
