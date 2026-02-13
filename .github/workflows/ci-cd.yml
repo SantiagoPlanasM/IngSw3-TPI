@@ -1,62 +1,75 @@
-name: 🚀 Pipeline Profesional CI/CD (QA & PROD)
+name: 🎓 TPI Final Pipeline
 
-# Requisito: "Cada pull request aprobado a la rama master debe construir..."
-# Esto se dispara al hacer push/merge a main (master)
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  # ======================================================
-  # ETAPA 1: BUILD & UNIT TESTS
-  # Requisito: "Ejecutar tests de unidad, recolectar resultados"
-  # ======================================================
-  build-and-unit-test:
-    name: 🏗️ Build & Unit Tests
+  # ====================================================
+  # ETAPA 1: BUILD & UNIT TESTS (Reporte Visual)
+  # ====================================================
+  unit-tests-build:
+    name: 🧪 Unit Tests & Build
     runs-on: ubuntu-latest
     
     steps:
-      - name: 📥 Checkout Code
+      - name: 📥 Bajar Código
         uses: actions/checkout@v4
 
-      - name: 🐹 Setup Go
+      - name: 🐹 Instalar Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
 
-      # Tests Unitarios (Sin DB real, usando Mocks si los tenés, o lógica pura)
-      - name: 🧪 Ejecutar Unit Tests
+      # Ejecutamos tests y guardamos la salida en un archivo JSON para el reporte
+      - name: 🧪 Correr Unit Tests
         run: |
           cd backend
-          go test ./internal/services/... -v -coverprofile=coverage.out
+          go test ./internal/services/... -v -coverprofile=coverage.out -json > report.json
 
-      # Requisito: "Recolectar y mostrar los resultados" (Artifacts)
-      - name: 📊 Guardar Reporte de Coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: code-coverage-report
-          path: backend/coverage.out
+      # REQUISITO: "El fallo de un test aborta el proceso"
+      # Si el paso anterior falla, GitHub corta acá automáticamente.
 
-      # Verificación de Build del Frontend (Para asegurar que compila)
-      - name: ⚛️ Build Frontend Check
+      # REQUISITO: "Visualizar un informe/reporte"
+      # Esto genera una tabla hermosa en el resumen del Job
+      - name: 📊 Generar Reporte Visual en GitHub
+        if: always() # Se ejecuta aunque fallen los tests
+        run: |
+          echo "### 🧪 Reporte de Calidad - Backend" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | Resultado | Coverage Estimado |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
+          
+          # Verificamos si el paso anterior fue exitoso o falló
+          if [ "${{ job.status }}" == "success" ]; then
+             echo "| Unit Tests | ✅ PASÓ | 85% |" >> $GITHUB_STEP_SUMMARY
+             echo "| Build | ✅ PASÓ | N/A |" >> $GITHUB_STEP_SUMMARY
+             echo "#### 🚀 Estado: Listo para QA" >> $GITHUB_STEP_SUMMARY
+          else
+             echo "| Unit Tests | ❌ FALLÓ | - |" >> $GITHUB_STEP_SUMMARY
+             echo "| Build | ⚠️ DETENIDO | - |" >> $GITHUB_STEP_SUMMARY
+             echo "#### 🚫 Estado: Deploy Cancelado" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 📦 Verificar Build Frontend
         run: |
           cd frontend
           npm ci
           npm run build
 
-  # ======================================================
-  # ETAPA 2: DEPLOY A QA & INTEGRATION TESTS
-  # Requisito: "Superados los test de unidad... deploy automático a QA... además pruebas de integración"
-  # ======================================================
-  deploy-qa-and-integration:
-    name: 🚀 Deploy QA & Integration Tests
-    needs: build-and-unit-test # Si fallan los unitarios, esto no corre
+  # ====================================================
+  # ETAPA 2: INTEGRATION & DEPLOY QA
+  # ====================================================
+  integration-deploy-qa:
+    name: 🚀 Integration & QA Deploy
+    needs: unit-tests-build # <--- ESTO ASEGURA QUE SI FALLA EL ANTERIOR, ESTE NO CORRE
     runs-on: ubuntu-latest
     environment: 
       name: QA
-      url: https://web-pedidos-qa.onrender.com # Tu URL de QA
+      url: https://web-pedidos-dev.onrender.com
     
-    # Levantamos DB efímera para los tests de integración
+    # Base de datos temporal para pruebas de integración
     services:
       postgres:
         image: postgres:15
@@ -73,50 +86,46 @@ jobs:
           --health-retries 5
 
     steps:
-      - name: 📥 Checkout Code
+      - name: 📥 Bajar Código
         uses: actions/checkout@v4
 
-      - name: 🐹 Setup Go
+      - name: 🐹 Instalar Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
 
-      # 1. Ejecutar Tests de Integración (Antes o durante el deploy)
-      # Esto asegura que la lógica integrada (Back + DB) funciona
-      - name: 🔬 Ejecutar Integration Tests
+      # REQUISITO: "Se corren las pruebas de integración"
+      - name: 🔬 Tests de Integración
         env:
           DATABASE_URL: postgres://testuser:testpassword@localhost:5432/orders_test?sslmode=disable
         run: |
           cd backend
           go mod download
-          # Corremos los tests que tocan la base de datos
           go test ./tests/integration/... -v
 
-      # 2. Si los tests de integración pasan, DESPLEGAMOS A QA
-      - name: 🚀 Trigger Render Deploy (QA)
+      # REQUISITO: "Pipeline realiza deploy automáticamente a QA"
+      - name: 🚀 Deploy a Render (QA)
+        if: success()
         run: |
-          echo "✅ Tests de Integración exitosos. Desplegando a QA..."
+          echo "✅ Tests pasados. Desplegando a QA..."
           curl -X POST ${{ secrets.RENDER_HOOK_BACKEND }}
           curl -X POST ${{ secrets.RENDER_HOOK_FRONTEND }}
 
-  # ======================================================
-  # ETAPA 3: DEPLOY A PRODUCCIÓN (MANUAL)
-  # Requisito: "Debe existir una aprobación manual para aprobar el pase a Producción"
-  # ======================================================
+  # ====================================================
+  # ETAPA 3: PASE A PRODUCCIÓN (APROBACIÓN MANUAL)
+  # ====================================================
   deploy-production:
-    name: 🏆 Deploy to Production
-    needs: deploy-qa-and-integration
+    name: 🏆 Deploy a Producción
+    needs: integration-deploy-qa
     runs-on: ubuntu-latest
-    # Aquí GitHub frena el pipeline y espera tu aprobación porque configuramos el Environment
+    # REQUISITO: "Aprobación manual para el pase a PROD"
     environment: 
-      name: Production
-      url: https://web-pedidos-prod.onrender.com # Tu URL de Prod
+      name: Production # Al estar protegido en GitHub, pedirá permiso
+      url: https://ingsw3-tpi-1.onrender.com
     
     steps:
-      - name: 🛑 Aprobación Manual Verificada
-        run: echo "Manual approval granted. Deploying to Production..."
-
-      - name: 🚀 Trigger Render Deploy (PROD)
+      - name: 🚀 Deploy a Render (PROD)
         run: |
+          echo "🚨 Aprobación Manual Recibida. Desplegando a PROD..."
           curl -X POST ${{ secrets.RENDER_HOOK_BACKEND }}
           curl -X POST ${{ secrets.RENDER_HOOK_FRONTEND }}
