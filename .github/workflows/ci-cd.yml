@@ -1,4 +1,4 @@
-vname: CI/CD con Environments
+name: CI/CD con Environments
 
 on:
   push:
