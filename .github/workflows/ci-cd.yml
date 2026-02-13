@@ -1,293 +1,94 @@
-name: CI/CD Pipeline
+vname: CI/CD con Environments
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ "main", "develop" ]
   pull_request:
-    branches: [ main ]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME_BACKEND: ${{ github.repository }}/backend
-  IMAGE_NAME_FRONTEND: ${{ github.repository }}/frontend
+    branches: [ "main" ]
 
 jobs:
-  # ============================================
-  # JOB 1: Tests Unitarios
-  # ============================================
-  unit-tests:
-    name: 🧪 Unit Tests
+  # ====================================================
+  # JOB 1: CI - Tests & Build Check (Siempre corre)
+  # ====================================================
+  ci-tests:
+    name: 🧪 CI - Test & Validate
     runs-on: ubuntu-latest
     
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: orders_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-      - name: Checkout code
+      - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Go
+      - name: 🐹 Setup Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
 
-      - name: Cache Go modules
-        uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Download dependencies
+      - name: 🧪 Run Backend Tests
+        env:
+          DATABASE_URL: postgres://testuser:testpassword@localhost:5432/orders_test?sslmode=disable
         run: |
           cd backend
           go mod download
+          go test ./... -v
 
-      - name: Run unit tests
+      - name: ⚛️ Verify Frontend Build
         run: |
-          cd backend
-          go test ./internal/services/... -v -coverprofile=coverage.out -covermode=atomic
+          cd frontend
+          npm ci
+          npm run build
 
-      - name: Generate coverage report
-        run: |
-          cd backend
-          go tool cover -html=coverage.out -o coverage.html
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: ./backend/coverage.out
-          flags: unittests
-          name: codecov-umbrella
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: test-results
-          path: |
-            backend/coverage.out
-            backend/coverage.html
-
-      - name: Comment PR with coverage
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const fs = require('fs');
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '✅ Unit tests passed! Coverage report uploaded.'
-            });
-
-  # ============================================
-  # JOB 2: Build Docker Images
-  # ============================================
-  build:
-    name: 🔨 Build Images
+  # ====================================================
+  # JOB 2: CD - Deploy a DEVELOPMENT
+  # ====================================================
+  deploy-dev:
+    name: 🚀 Deploy to Dev
+    needs: ci-tests
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: unit-tests
+    environment: 
+      name: Development
+      url: https://web-pedidos-dev.onrender.com # Cambiá esto por tu URL real
     
-    permissions:
-      contents: read
-      packages: write
-
-    strategy:
-      matrix:
-        service: [backend, frontend]
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./${{ matrix.service }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ============================================
-  # JOB 3: Deploy to QA
-  # ============================================
-  deploy-qa:
-    name: 🚀 Deploy to QA
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/develop' || github.event_name == 'pull_request'
-    
-    environment:
-      name: QA
-      url: ${{ steps.deploy.outputs.url }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to Railway (QA)
-        id: deploy
+      - name: 🚀 Trigger Render Deploy (Dev)
         run: |
-          echo "Deploying to Railway QA environment..."
-          echo "url=https://order-management-qa.railway.app" >> $GITHUB_OUTPUT
-        # Aquí irá la integración real con Railway, Render o el servicio que elijas
+          echo "Deploying to Development Environment..."
+          # Llamamos a los Hooks que guardaste en los secretos de 'Development'
+          curl -X POST ${{ secrets.RENDER_HOOK_BACKEND }}
+          curl -X POST ${{ secrets.RENDER_HOOK_FRONTEND }}
 
-      - name: Wait for deployment
-        run: sleep 30
-
-      - name: Health check QA
-        run: |
-          curl --retry 5 --retry-delay 10 --retry-connrefused \
-            --fail https://order-management-qa.railway.app/health || exit 1
-
-      - name: Comment PR with QA URL
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '🚀 Deployed to QA: https://order-management-qa.railway.app'
-            });
-
-  # ============================================
-  # JOB 4: Tests de Integración en QA
-  # ============================================
-  integration-tests:
-    name: 🔬 Integration Tests (QA)
-    runs-on: ubuntu-latest
-    needs: deploy-qa
-    
-    services:
-      mysql:
-        image: mysql:8.0.35
-        env:
-          MYSQL_ROOT_PASSWORD: testpassword
-          MYSQL_DATABASE: order_management_test
-          MYSQL_USER: testuser
-          MYSQL_PASSWORD: testpass123
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
-
-      - name: Wait for MySQL
-        run: |
-          until mysqladmin ping -h"127.0.0.1" -P"3306" --silent; do
-            echo 'waiting for mysql...'
-            sleep 2
-          done
-
-      - name: Run integration tests
-        env:
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_USER: testuser
-          DB_PASSWORD: testpass123
-          DB_NAME: order_management_test
-          INTEGRATION_TEST: true
-        run: |
-          cd backend
-          go test ./tests/integration/... -v
-
-      - name: Upload integration test results
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: integration-test-results
-          path: backend/tests/integration/
-
-  # ============================================
-  # JOB 5: Deploy to Production (Manual Approval)
-  # ============================================
+  # ====================================================
+  # JOB 3: CD - Deploy a PRODUCTION
+  # ====================================================
   deploy-prod:
-    name: 🎯 Deploy to Production
+    name: 🚀 Deploy to Production
+    needs: ci-tests
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: integration-tests
-    if: github.ref == 'refs/heads/main'
-    
-    environment:
+    environment: 
       name: Production
-      url: https://order-management-prod.railway.app
-
+      url: https://web-pedidos-prod.onrender.com # Cambiá esto por tu URL real
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to Railway (Production)
+      - name: 🚀 Trigger Render Deploy (Prod)
         run: |
-          echo "Deploying to Railway Production environment..."
-          # Aquí irá la integración real con Railway
-
-      - name: Wait for deployment
-        run: sleep 30
-
-      - name: Health check Production
-        run: |
-          curl --retry 5 --retry-delay 10 --retry-connrefused \
-            --fail https://order-management-prod.railway.app/health || exit 1
-
-      - name: Smoke tests Production
-        run: |
-          # Verificar endpoints críticos
-          curl -f https://order-management-prod.railway.app/api/products || exit 1
-          curl -f https://order-management-prod.railway.app/api/users || exit 1
-
-      - name: Create GitHub Release
-        if: success()
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ github.run_number }}
-          release_name: Release v${{ github.run_number }}
-          body: |
-            🚀 Deployed to Production
-            
-            **Changes:** ${{ github.event.head_commit.message }}
-            **Deployed by:** @${{ github.actor }}
-            **Date:** ${{ github.event.head_commit.timestamp }}
-          draft: false
-          prerelease: false
-
-      - name: Notify deployment success
-        run: |
-          echo "✅ Successfully deployed to Production!"
-          echo "🌐 URL: https://order-management-prod.railway.app"
+          echo "Deploying to Production Environment..."
+          # Llamamos a los Hooks que guardaste en los secretos de 'Production'
+          # ¡El nombre es el mismo, pero el valor es el de PROD!
+          curl -X POST ${{ secrets.RENDER_HOOK_BACKEND }}
+          curl -X POST ${{ secrets.RENDER_HOOK_FRONTEND }}
