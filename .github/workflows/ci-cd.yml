@@ -23,35 +23,43 @@ jobs:
         with:
           go-version: '1.21'
 
-      # Ejecutamos tests y guardamos la salida en un archivo JSON para el reporte
-      - name: 🧪 Correr Unit Tests
+      # PASO 1: Correr tests guardando el resultado en JSON
+      # El '|| true' es importante: evita que el pipeline se corte aquí mismo si falla un test.
+      # Queremos que siga al siguiente paso para dibujar la tabla roja antes de morir.
+      - name: 🧪 Ejecutar Unit Tests (JSON)
         run: |
           cd backend
-          go test ./internal/services/... -v -coverprofile=coverage.out -json > report.json
+          go test ./... -json > test_report.json || true
 
-      # REQUISITO: "El fallo de un test aborta el proceso"
-      # Si el paso anterior falla, GitHub corta acá automáticamente.
-
-      # REQUISITO: "Visualizar un informe/reporte"
-      # Esto genera una tabla hermosa en el resumen del Job
-      - name: 📊 Generar Reporte Visual en GitHub
-        if: always() # Se ejecuta aunque fallen los tests
+      # PASO 2: Generar la Tabla Hermosa Fila por Fila
+      - name: 📊 Generar Reporte Detallado
         run: |
-          echo "### 🧪 Reporte de Calidad - Backend" >> $GITHUB_STEP_SUMMARY
-          echo "| Test Suite | Resultado | Coverage Estimado |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
+          cd backend
+          # Título del reporte
+          echo "### 🔬 Reporte Detallado de Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Verificamos si el paso anterior fue exitoso o falló
-          if [ "${{ job.status }}" == "success" ]; then
-             echo "| Unit Tests | ✅ PASÓ | 85% |" >> $GITHUB_STEP_SUMMARY
-             echo "| Build | ✅ PASÓ | N/A |" >> $GITHUB_STEP_SUMMARY
-             echo "#### 🚀 Estado: Listo para QA" >> $GITHUB_STEP_SUMMARY
+          # Cabecera de la tabla
+          echo "| Clase/Paquete | Test Case | Resultado | Duración |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
+          
+          # Magia con JQ: Convierte el JSON de Go en filas de tabla Markdown
+          # Filtra solo los eventos 'pass' o 'fail' que tengan nombre de test
+          jq -r 'select(.Action == "pass" or .Action == "fail") | select(.Test != null) | "| \(.Package) | \(.Test) | " + (if .Action == "pass" then "✅ PASS" else "❌ FAIL" end) + " | \(.Elapsed)s |"' test_report.json >> $GITHUB_STEP_SUMMARY
+
+      # PASO 3: Ahora sí, verificar si hubo fallos para detener el pipeline
+      - name: 🛑 Verificar Fallos
+        run: |
+          cd backend
+          # Buscamos si hay algún "fail" en el archivo JSON
+          if grep -q '"Action":"fail"' test_report.json; then
+            echo "❌ Se encontraron tests fallidos. Abortando Build."
+            exit 1
           else
-             echo "| Unit Tests | ❌ FALLÓ | - |" >> $GITHUB_STEP_SUMMARY
-             echo "| Build | ⚠️ DETENIDO | - |" >> $GITHUB_STEP_SUMMARY
-             echo "#### 🚫 Estado: Deploy Cancelado" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Todos los tests pasaron."
           fi
 
+      # PASO 4: Build del Frontend (Solo si lo anterior pasó)
       - name: 📦 Verificar Build Frontend
         run: |
           cd frontend
