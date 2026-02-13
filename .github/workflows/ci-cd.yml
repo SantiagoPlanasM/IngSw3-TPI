@@ -22,6 +22,7 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
+          cache-dependency-path: backend/go.sum
 
       # PASO 1: Correr tests guardando el resultado en JSON
       # El '|| true' es importante: evita que el pipeline se corte aquí mismo si falla un test.
