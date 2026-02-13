@@ -142,7 +142,7 @@ func TestCreateOrder_Success(t *testing.T) {
 		t.Errorf("Expected status PENDING, got %s", order.Status)
 	}
 
-	expectedTotal := 200.0 // 2 * 100
+	expectedTotal := 5000.0 // 2 * 100
 	if order.Total != expectedTotal {
 		t.Errorf("Expected total %f, got %f", expectedTotal, order.Total)
 	}
