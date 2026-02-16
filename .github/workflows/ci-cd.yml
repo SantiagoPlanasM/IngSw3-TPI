@@ -102,15 +102,42 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
+          cache-dependency-path: backend/go.sum
 
-      # REQUISITO: "Se corren las pruebas de integración"
-      - name: 🔬 Tests de Integración
+ # PASO 1: Ejecutar Tests de Integración (JSON)
+      - name: 🔬 Ejecutar Tests de Integración
         env:
+          # VITAL: Tu código pide esta variable para no saltarse los tests
+          INTEGRATION_TEST: "true" 
           DATABASE_URL: postgres://testuser:testpassword@localhost:5432/orders_test?sslmode=disable
         run: |
           cd backend
           go mod download
-          go test ./tests/integration/... -v
+          # Corremos los tests y guardamos el JSON. "|| true" evita que corte acá.
+          go test ./tests/integration/... -v -json > integration_report.json || true
+
+      # PASO 2: Generar Tabla Visual
+      - name: 📊 Generar Reporte Visual Integración
+        run: |
+          cd backend
+          echo "### 🔌 Reporte de Integración (Base de Datos Real)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Escenario de Test | Resultado | Duración |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
+          
+          # JQ filtra los resultados (incluyendo los sub-tests t.Run)
+          jq -r 'select(.Action == "pass" or .Action == "fail") | select(.Test != null) | "| \(.Test) | " + (if .Action == "pass" then "✅ PASS" else "❌ FAIL" end) + " | \(.Elapsed)s |"' integration_report.json >> $GITHUB_STEP_SUMMARY
+
+      # PASO 3: Verificar Fallos y Abortar
+      - name: 🛑 Verificar Integración
+        run: |
+          cd backend
+          if grep -q '"Action":"fail"' integration_report.json; then
+            echo "❌ Fallaron las pruebas de integración. NO SE DESPLIEGA A QA."
+            exit 1
+          else
+            echo "✅ Integración exitosa."
+          fi
 
       # REQUISITO: "Pipeline realiza deploy automáticamente a QA"
       - name: 🚀 Deploy a Render (QA)
