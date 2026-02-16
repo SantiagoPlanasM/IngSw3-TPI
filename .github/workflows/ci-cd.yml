@@ -141,7 +141,6 @@ jobs:
 
       # REQUISITO: "Pipeline realiza deploy automáticamente a QA"
       - name: 🚀 Deploy a Render (QA)
-        if: success()
         run: |
           echo "✅ Tests pasados. Desplegando a QA..."
           curl -X POST ${{ secrets.RENDER_HOOK_BACKEND }}
