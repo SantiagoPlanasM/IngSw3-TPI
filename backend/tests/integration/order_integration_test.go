@@ -100,7 +100,7 @@ func TestOrderIntegration(t *testing.T) {
 				t.Fatalf("Failed to get product: %v", err)
 			}
 
-			expectedStock := 80 // 10 - 2
+			expectedStock := 8 // 10 - 2
 			if updatedProduct.Stock != expectedStock {
 				t.Errorf("Expected stock %d, got %d", expectedStock, updatedProduct.Stock)
 			}
