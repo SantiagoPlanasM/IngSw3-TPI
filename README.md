@@ -1,6 +1,6 @@
 # 🛍️ Sistema de Gestión de Pedidos
 
-Sistema completo de gestión de pedidos con arquitectura de microservicios, construido con Go (Backend), React (Frontend) y MySQL (Base de Datos). Proyecto diseñado para implementar CI/CD con **GitHub Actions** .
+Sistema completo de gestión de pedidos con arquitectura de microservicios, construido con Go (Backend), React (Frontend) y MySQL/PostgreSQL (Base de Datos). Proyecto diseñado para implementar CI/CD con **GitHub Actions** .
 
 ## 📋 Tabla de Contenidos
 
@@ -60,7 +60,7 @@ Sistema completo de gestión de pedidos con arquitectura de microservicios, cons
 ### DevOps
 - **Contenedores:** Docker
 - **Orquestación:** Docker Compose
-- **CI/CD:** Railway¿?
+- **CI/CD:** RENDER / Github Actions
 
 ## 🏗️ Arquitectura
 
